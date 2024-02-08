@@ -1,0 +1,219 @@
+substitutions:
+  device_name: "athom-plug-v2"
+  friendly_name: "Athom Plug"
+  relay_restore_mode: RESTORE_DEFAULT_OFF
+  icon: "mdi:power-socket-eu"
+
+esphome:
+  name: "${device_name}"
+  name_add_mac_suffix: true
+
+esp8266:
+  board: esp8285
+  restore_from_flash: true
+
+ota:
+  safe_mode: true
+
+preferences:
+  flash_write_interval: 1min
+  
+api:
+
+logger:
+  baud_rate: 0
+  level: DEBUG
+
+mdns:
+  disabled: false
+
+web_server:
+  port: 80
+  local: true
+  ota: false
+  include_internal: false
+
+wifi:
+  power_save_mode: none
+  networks:
+  - ssid: "Your SSID SSID"
+    password: "Your SSID Password"
+  #use_address: 192.168.1.35
+  
+  ap: # Enable fallback hotspot (captive portal) in case wifi connection fails
+    ssid: "Athom Plug Hotspot"
+    password: "Set a hotspot password"
+
+captive_portal:
+
+uart:
+  rx_pin: RX
+  baud_rate: 4800
+
+globals:
+  - id: total_energy
+    type: float
+    restore_value: yes
+    initial_value: '0.0' 
+
+binary_sensor:
+  - platform: status
+    name: "${friendly_name} Status"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: true
+
+  - platform: gpio
+    pin:
+      number: 5
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "${friendly_name} Power Button"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: true
+    on_multi_click:
+      - timing:
+          - ON for at most 1s
+          - OFF for at least 0.2s
+        then:
+          - switch.toggle: relay
+      - timing:
+          - ON for at least 4s
+        then:
+          - button.press: Reset
+
+sensor:
+  - platform: uptime
+    name: "${friendly_name} Uptime"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: false
+
+  - platform: cse7766
+    update_interval: 10s
+    current:
+      name: "${friendly_name} Current"
+#      filters:
+#          - lambda: if (x < 0.040) return 0.0; else return x;   #For the chip will report less than 3w power when no load is connected
+      icon: "${icon}"
+      disabled_by_default: false
+      internal: false
+
+    voltage:
+      name: "${friendly_name} Voltage"
+      icon: "${icon}"
+      disabled_by_default: false
+      internal: false
+    power:
+      name: "${friendly_name} Power"
+      icon: "${icon}"
+      disabled_by_default: false
+      internal: false
+      id: power_sensor
+      filters:
+          - lambda: if (x < 1.5) return 0.0; else return x;    #For the chip will report less than 3w power when no load is connected
+
+
+
+    energy:
+      name: "${friendly_name} Energy"
+      icon: "${icon}"
+      disabled_by_default: false
+      internal: false
+      id: energy
+      unit_of_measurement: kWh
+      filters:
+        # Multiplication factor from W to kW is 0.001
+        - multiply: 0.001
+      on_value:
+        then:
+          - lambda: |-
+              static float previous_energy_value = 0.0;
+              float current_energy_value = id(energy).state;
+              id(total_energy) += current_energy_value - previous_energy_value;
+              previous_energy_value = current_energy_value;
+
+  - platform: template
+    name: "${friendly_name} Total Energy"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: false
+    unit_of_measurement: kWh
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 2
+    lambda: |-
+      return id(total_energy);
+    update_interval: 10s
+
+  - platform: total_daily_energy
+    name: "${friendly_name} Total Daily Energy"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: false
+    restore: true
+    power_id: power_sensor
+    unit_of_measurement: kWh
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.001
+
+
+button:
+  - platform: restart
+    id: restart_button
+    name: "${friendly_name} Restart"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: false
+  - platform: factory_reset
+    name: "${friendly_name} Reset to Factory Settings"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: false
+    id: Reset
+
+switch:
+  - platform: gpio
+    name: "${friendly_name}"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: false
+    pin: GPIO12
+    id: relay
+    restore_mode: ${relay_restore_mode}
+
+light:
+  - platform: status_led
+    name: "${friendly_name} Status LED"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: false
+    id: blue_led
+    pin:
+      inverted: true
+      number: GPIO13
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "${friendly_name} IP Address"
+      icon: "${icon}"
+      disabled_by_default: false
+      internal: false
+    ssid:
+      name: "${friendly_name} Connected SSID"
+      icon: "${icon}"
+      disabled_by_default: false
+      internal: false
+    mac_address:
+      name: "${friendly_name} Mac Address"
+      icon: "${icon}"
+      disabled_by_default: false
+      internal: false
+
+time:
+  - platform: sntp
+    id: my_time
+    
