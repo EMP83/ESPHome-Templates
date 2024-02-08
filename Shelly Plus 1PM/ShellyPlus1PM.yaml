@@ -1,0 +1,242 @@
+substitutions:
+  device_name: "Shelly Plus 1PM"
+  icon: "mdi:power-socket-eu"
+  current_res: "0.001"
+  voltage_div: "1925"
+
+esphome:
+  name: shelly-plus-1pm
+  platformio_options:
+    board_build.f_cpu: 160000000L
+
+ota:
+  safe_mode: true
+  password: ota_password
+
+esp32:
+  board: esp32doit-devkit-v1
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_FREERTOS_UNICORE: y
+      CONFIG_ESP32_DEFAULT_CPU_FREQ_160: y
+      CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ: "160"
+
+preferences:
+  flash_write_interval: 1min
+
+captive_portal:
+
+web_server:
+
+wifi:
+  power_save_mode: none
+  networks:
+  - ssid: Your SSID Name
+    password: Your SSID Password
+  #use_address: 192.168.1.33
+
+  ap: # Enable fallback hotspot (captive portal) in case wifi connection fails
+    ssid: "Shelly Plus 1PM Hotspot"
+    password: Set a hotspot password
+
+
+mdns:
+  disabled: false
+
+api:
+
+logger:
+  level: DEBUG
+
+time:
+  - platform: sntp
+    id: my_time
+
+globals:
+  - id: total_energy
+    type: float
+    restore_value: yes
+    initial_value: '0.0'
+
+output:
+  - platform: gpio
+    id: "relay_output"
+    pin: GPIO26
+
+switch:
+  - platform: output
+    id: "relay"
+    name: "${device_name} Relay"
+    disabled_by_default: false
+    internal: false
+    output: "relay_output"
+    restore_mode: RESTORE_DEFAULT_ON
+
+binary_sensor:
+  - platform: gpio
+    name: "${device_name} Switch"
+    disabled_by_default: false
+    internal: false
+    pin: GPIO4
+    on_press:
+      then:
+        - switch.turn_on: "relay"
+    on_release:
+      then:
+        - switch.turn_off: "relay"
+    filters:
+      - delayed_on_off: 50ms
+  - platform: status
+    name: "${device_name} Status"
+    disabled_by_default: false
+    internal: true
+
+sensor:
+  - platform: ntc
+    sensor: temp_resistance_reading
+    name: "${device_name} Relay Temperature"
+    disabled_by_default: false
+    internal: false
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    calibration:
+      b_constant: 3350
+      reference_resistance: 10kOhm
+      reference_temperature: 298.15K
+    on_value_range:
+      - above: "80.0"
+        then:
+          - switch.turn_off: "relay"
+
+  - platform: resistance
+    id: temp_resistance_reading
+    sensor: temp_analog_reading
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+
+  - platform: adc
+    id: temp_analog_reading
+    pin: GPIO32
+    attenuation: 11db
+
+  - platform: adc
+    name: "${device_name} Relay Voltage"
+    disabled_by_default: false
+    internal: false
+    pin: GPIO33
+    attenuation: 11db
+    filters:
+      - multiply: 8
+
+  - platform: hlw8012
+    model: BL0937
+    sel_pin:
+      number: GPIO23
+      inverted: true
+    cf_pin: GPIO5
+    cf1_pin: GPIO18
+    current_resistor: ${current_res}
+    voltage_divider: ${voltage_div}
+
+    current:
+      name: "${device_name} Current"
+      disabled_by_default: false
+      internal: false
+      unit_of_measurement: A
+      accuracy_decimals: 2
+
+    voltage:
+      name: "${device_name} Voltage"
+      disabled_by_default: false
+      internal: false
+      unit_of_measurement: V
+      accuracy_decimals: 1
+
+    power:
+      name: "${device_name} Power"
+      disabled_by_default: false
+      internal: false
+      unit_of_measurement: W
+      id: power
+      on_value_range:
+        - above: "3600"
+          then:
+            - switch.turn_off: "relay"
+    change_mode_every: 1
+    update_interval: 3s
+
+    energy:
+          name: "${device_name} Energy"
+          disabled_by_default: false
+          internal: false
+          id: energy
+          accuracy_decimals: 2
+          unit_of_measurement: kWh
+          filters:
+            # Multiplication factor from W to kW is 0.001
+            - multiply: 0.001
+          on_value:
+            then:
+              - lambda: |-
+                  static float previous_energy_value = 0.0;
+                  float current_energy_value = id(energy).state;
+                  id(total_energy) += current_energy_value - previous_energy_value;
+                  previous_energy_value = current_energy_value;
+
+  - platform: template
+    name: "${device_name} Total Energy"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: false
+    unit_of_measurement: kWh
+    device_class: "energy"
+    state_class: "total_increasing"
+    accuracy_decimals: 2
+    lambda: |-
+      return id(total_energy);
+    update_interval: 10s
+
+  - platform: total_daily_energy
+    name: "${device_name} Total Daily Energy"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: false
+    accuracy_decimals: 2
+    power_id: power
+    filters:
+        - multiply: 0.001
+    unit_of_measurement: kWh
+
+  - platform: uptime
+    name: "${device_name} Uptime"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: false
+
+status_led:
+  pin:
+    number: GPIO0
+    inverted: true
+
+button:
+  - platform: restart
+    id: restart_button
+    name: "${device_name} Restart"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: false
+  - platform: factory_reset
+    name: "${device_name} Reset to Factory Settings"
+    icon: "${icon}"
+    disabled_by_default: false
+    internal: false
+    id: Reset
+    
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "${device_name} IP Address"
+      icon: "${icon}"
+      disabled_by_default: false
+      internal: false
